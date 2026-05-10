@@ -1,0 +1,8 @@
+{
+  "name": "Pingflare",
+  "short_name": "Pingflare",
+  "icons": [],
+  "theme_color": "#ff6633",
+  "background_color": "#0f1117",
+  "display": "standalone"
+}

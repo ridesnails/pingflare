@@ -1,0 +1,23 @@
+import type { NotificationPayload } from './index'
+import { formatMessage } from './messages'
+
+export async function sendNtfy(
+  config: Record<string, string>,
+  payload: NotificationPayload,
+  locale: string,
+): Promise<void> {
+  const priority = payload.status === 'down' ? '4' : '2'
+  const tag = payload.status === 'up' ? 'white_check_mark' : 'red_circle'
+  const headers: Record<string, string> = {
+    'Title': payload.monitor.name,
+    'Priority': priority,
+    'Tags': tag,
+  }
+  if (config.token) headers['Authorization'] = `Bearer ${config.token}`
+
+  await fetch(`${config.url}/${config.topic}`, {
+    method: 'POST',
+    headers,
+    body: formatMessage(payload, locale),
+  })
+}

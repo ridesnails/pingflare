@@ -1,0 +1,33 @@
+{
+  "name": "pingflare",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,frontend,cron -c blue,green,yellow \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:cron\"",
+    "dev:backend": "wrangler dev --test-scheduled",
+    "dev:frontend": "npm run dev -w frontend",
+    "dev:cron": "node scripts/cron-sim.mjs",
+    "build": "npm run build -w frontend",
+    "deploy": "npm run build && wrangler deploy",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply pingflare --local",
+    "db:migrate:remote": "wrangler d1 migrations apply pingflare",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.18",
+    "jose": "^6.2.3",
+    "npm-check-updates": "^22.1.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260510.1",
+    "concurrently": "^9.2.1",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.90.0"
+  }
+}

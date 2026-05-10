@@ -1,0 +1,132 @@
+import { connect } from 'cloudflare:sockets'
+import type { NotificationPayload } from './index'
+import { typeLabel as getTypeLabel, metaFields } from './messages'
+
+function utf8ToBase64(str: string): string {
+  const bytes = new TextEncoder().encode(str)
+  let binary = ''
+  for (const b of bytes) binary += String.fromCharCode(b)
+  return btoa(binary)
+}
+
+function encodeHeader(value: string): string {
+  if (/[^\x00-\x7f]/.test(value)) return `=?UTF-8?B?${utf8ToBase64(value)}?=`
+  return value
+}
+
+class SmtpConnection {
+  private reader: ReadableStreamDefaultReader<Uint8Array>
+  private writer: WritableStreamDefaultWriter<Uint8Array>
+  private decoder = new TextDecoder()
+  private encoder = new TextEncoder()
+  private buf = ''
+
+  constructor(socket: { readable: ReadableStream<Uint8Array>; writable: WritableStream<Uint8Array> }) {
+    this.reader = socket.readable.getReader()
+    this.writer = socket.writable.getWriter()
+  }
+
+  async readResponse(): Promise<number> {
+    while (true) {
+      const idx = this.buf.indexOf('\r\n')
+      if (idx !== -1) {
+        const line = this.buf.slice(0, idx)
+        this.buf = this.buf.slice(idx + 2)
+        const code = parseInt(line.slice(0, 3), 10)
+        if (line[3] !== '-') return code
+        continue
+      }
+      const { done, value } = await this.reader.read()
+      if (done) throw new Error('SMTP: connection closed unexpectedly')
+      this.buf += this.decoder.decode(value, { stream: true })
+    }
+  }
+
+  async cmd(command: string, expect: number): Promise<void> {
+    await this.writer.write(this.encoder.encode(command + '\r\n'))
+    const code = await this.readResponse()
+    if (code !== expect) throw new Error(`SMTP: expected ${expect}, got ${code} (${command.split(' ')[0]})`)
+  }
+
+  async sendData(message: string): Promise<void> {
+    await this.writer.write(this.encoder.encode('DATA\r\n'))
+    const code = await this.readResponse()
+    if (code !== 354) throw new Error(`SMTP: expected 354 for DATA, got ${code}`)
+    const stuffed = message.replace(/^\./gm, '..')
+    await this.writer.write(this.encoder.encode(stuffed + '\r\n.\r\n'))
+    const end = await this.readResponse()
+    if (end !== 250) throw new Error(`SMTP: message rejected with ${end}`)
+  }
+
+  release(): void {
+    this.reader.releaseLock()
+    this.writer.releaseLock()
+  }
+}
+
+export async function sendEmail(
+  config: Record<string, string>,
+  payload: NotificationPayload,
+  locale: string,
+): Promise<void> {
+  const { host, port, user, password, from, to } = config
+  const smtpPort = parseInt(port ?? '587', 10)
+  const implicitTLS = smtpPort === 465
+
+  const icon = payload.status === 'up' ? '✅' : '🔴'
+  const label = getTypeLabel(payload.type, locale)
+  const subject = `${icon} ${label}: ${payload.monitor.name}`
+
+  const bodyLines = [`<h2>${subject}</h2>`]
+  if (payload.message) bodyLines.push(`<p>${payload.message}</p>`)
+
+  for (const field of metaFields(payload, locale)) {
+    bodyLines.push(`<p><b>${field.name}:</b> ${field.value}</p>`)
+  }
+
+  const recipients = to.split(',').map((s: string) => s.trim()).filter(Boolean)
+
+  const message = [
+    `Date: ${new Date().toUTCString()}`,
+    `From: ${from}`,
+    `To: ${recipients.join(', ')}`,
+    `Subject: ${encodeHeader(subject)}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: text/html; charset=UTF-8`,
+    `Content-Transfer-Encoding: 8bit`,
+    ``,
+    bodyLines.join('\n'),
+  ].join('\r\n')
+
+  let socket = connect(
+    { hostname: host, port: smtpPort },
+    { secureTransport: implicitTLS ? 'on' : 'starttls', allowHalfOpen: false },
+  )
+  let conn = new SmtpConnection(socket)
+
+  await conn.readResponse()
+
+  await conn.cmd('EHLO pingflare', 250)
+
+  if (!implicitTLS) {
+    await conn.cmd('STARTTLS', 220)
+    conn.release()
+    socket = socket.startTls()
+    conn = new SmtpConnection(socket)
+    await conn.cmd('EHLO pingflare', 250)
+  }
+
+  await conn.cmd('AUTH LOGIN', 334)
+  await conn.cmd(utf8ToBase64(user), 334)
+  await conn.cmd(utf8ToBase64(password), 235)
+
+  await conn.cmd(`MAIL FROM:<${from}>`, 250)
+  for (const rcpt of recipients) {
+    await conn.cmd(`RCPT TO:<${rcpt}>`, 250)
+  }
+
+  await conn.sendData(message)
+
+  await conn.cmd('QUIT', 221)
+  socket.close()
+}
