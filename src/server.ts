@@ -79,8 +79,8 @@ async function main() {
 
   serve(
     {
-      // Inject env bindings by passing them as the second fetch argument
-      fetch: (req, _cfEnv, ctx) => app.fetch(req, env, ctx),
+      // Inject env bindings as the second fetch argument (c.env in all routes)
+      fetch: (req) => app.fetch(req, env),
       port,
     },
     (info) => console.log(`Pingflare running on http://0.0.0.0:${info.port}`),
