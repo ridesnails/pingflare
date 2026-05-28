@@ -109,7 +109,7 @@ export const api = {
 export interface Monitor {
   id: string
   name: string
-  type: 'http' | 'heartbeat'
+  type: 'http' | 'heartbeat' | 'dns'
   tags: string
   interval: number
   active: boolean
@@ -136,6 +136,10 @@ export interface Monitor {
   sslCheckEnabled: boolean
   sslStatus: 'ok' | 'error' | 'unknown'
   cacheBooster: boolean
+  dnsHostname: string | null
+  dnsRecordType: string | null
+  dnsResolverUrl: string | null
+  dnsExpectedIp: string | null
   createdAt: number
   updatedAt: number
 }

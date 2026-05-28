@@ -1,6 +1,6 @@
 import { eq, lt } from 'drizzle-orm'
 import { getDb, monitors, statusLogs, heartbeatTokens, settings } from './db'
-import { checkHttp } from './services/checker'
+import { checkHttp, checkDns } from './services/checker'
 import { checkHeartbeat } from './services/heartbeat-checker'
 import { processAlert, getLocale } from './services/alert-manager'
 import type { Env } from './index'
@@ -89,6 +89,23 @@ export async function runCron(env: Env): Promise<void> {
                 originIp: origin?.originIp ?? null,
               },
               sslStatus,
+              alertInput: { status: result.status, message: result.message, responseTimeMs: result.responseTimeMs },
+            }
+          } else if (monitor.type === 'dns') {
+            const result = await checkDns(monitor)
+            return {
+              monitor,
+              logEntry: {
+                id: crypto.randomUUID(),
+                monitorId: monitor.id,
+                status: result.status,
+                message: result.message,
+                responseTimeMs: result.responseTimeMs,
+                checkedAt: now,
+                colo: origin?.colo ?? null,
+                countryCode: origin?.countryCode ?? null,
+                originIp: origin?.originIp ?? null,
+              },
               alertInput: { status: result.status, message: result.message, responseTimeMs: result.responseTimeMs },
             }
           } else {

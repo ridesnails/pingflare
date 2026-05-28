@@ -56,6 +56,10 @@ router.post('/', async (c) => {
     surgeProtectionLimit: body.surgeProtectionLimit ?? null,
     sslCheckEnabled: body.sslCheckEnabled ?? false,
     cacheBooster: body.cacheBooster ?? false,
+    dnsHostname: body.dnsHostname ?? null,
+    dnsRecordType: body.dnsRecordType ?? 'A',
+    dnsResolverUrl: body.dnsResolverUrl ?? null,
+    dnsExpectedIp: body.dnsExpectedIp ?? null,
     createdAt: now,
     updatedAt: now,
   })
@@ -113,6 +117,10 @@ router.put('/:id', async (c) => {
     surgeProtectionLimit: body.surgeProtectionLimit ?? existing.surgeProtectionLimit,
     sslCheckEnabled: body.sslCheckEnabled ?? existing.sslCheckEnabled,
     cacheBooster: body.cacheBooster ?? existing.cacheBooster,
+    dnsHostname: body.dnsHostname ?? existing.dnsHostname,
+    dnsRecordType: body.dnsRecordType ?? existing.dnsRecordType,
+    dnsResolverUrl: body.dnsResolverUrl ?? existing.dnsResolverUrl,
+    dnsExpectedIp: body.dnsExpectedIp ?? existing.dnsExpectedIp,
     updatedAt: now,
   }).where(eq(monitors.id, id))
 

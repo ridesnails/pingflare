@@ -4,7 +4,7 @@ import { sql } from 'drizzle-orm'
 export const monitors = sqliteTable('monitors', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  type: text('type').notNull().$type<'http' | 'heartbeat'>(),
+  type: text('type').notNull().$type<'http' | 'heartbeat' | 'dns'>(),
   tags: text('tags').notNull().default('[]'),
   interval: integer('interval').notNull().default(60),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
@@ -31,6 +31,10 @@ export const monitors = sqliteTable('monitors', {
   sslCheckEnabled: integer('ssl_check_enabled', { mode: 'boolean' }).notNull().default(false),
   sslStatus: text('ssl_status').notNull().default('unknown').$type<'ok' | 'error' | 'unknown'>(),
   cacheBooster: integer('cache_booster', { mode: 'boolean' }).notNull().default(false),
+  dnsHostname: text('dns_hostname'),
+  dnsRecordType: text('dns_record_type').default('A'),
+  dnsResolverUrl: text('dns_resolver_url'),
+  dnsExpectedIp: text('dns_expected_ip'),
   createdAt: integer('created_at').notNull().default(sql`(unixepoch())`),
   updatedAt: integer('updated_at').notNull().default(sql`(unixepoch())`),
 }, (t) => [

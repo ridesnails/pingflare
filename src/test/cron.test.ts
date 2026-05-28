@@ -5,6 +5,7 @@ import { monitors, statusLogs, heartbeatTokens } from '../db/schema'
 
 vi.mock('../services/checker', () => ({
   checkHttp: vi.fn().mockResolvedValue({ status: 'up', statusCode: 200, responseTimeMs: 42, message: 'OK' }),
+  checkDns: vi.fn().mockResolvedValue({ status: 'up', responseTimeMs: 10, message: 'DNS OK (1 record)' }),
 }))
 vi.mock('../services/heartbeat-checker', () => ({
   checkHeartbeat: vi.fn().mockReturnValue({ status: 'up', message: 'Heartbeat received', logKey: undefined }),
@@ -115,6 +116,25 @@ describe('cron — batch insert and concurrency', () => {
     const logs = await db.select().from(statusLogs)
     expect(logs).toHaveLength(2)
     expect(new Set(logs.map(l => l.monitorId))).toEqual(new Set([httpId, hbId]))
+  })
+
+  it('handles dns monitor and writes up log', async () => {
+    const { db, d1 } = ctx
+    const dnsId = await insertMonitor(db, {
+      type: 'dns',
+      dnsHostname: 'example.com',
+      dnsRecordType: 'A',
+      dnsResolverUrl: 'https://freedns.controld.com/p0',
+    })
+
+    const { runCron } = await import('../cron')
+    await runCron(makeEnv(d1))
+
+    const logs = await db.select().from(statusLogs)
+    expect(logs).toHaveLength(1)
+    expect(logs[0].monitorId).toBe(dnsId)
+    expect(logs[0].status).toBe('up')
+    expect(logs[0].message).toBe('DNS OK (1 record)')
   })
 })
 

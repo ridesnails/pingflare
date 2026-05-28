@@ -10,6 +10,202 @@ export interface CheckResult {
   sslError?: boolean
 }
 
+interface DoHResponse {
+  Status: number
+  Answer?: Array<{ name: string; type: number; TTL: number; data: string }>
+}
+
+const DNS_RCODES: Record<number, string> = {
+  1: 'FORMERR',
+  2: 'SERVFAIL',
+  3: 'NXDOMAIN',
+  4: 'NOTIMP',
+  5: 'REFUSED',
+}
+
+const DNS_QTYPES: Record<string, number> = {
+  A: 1, NS: 2, CNAME: 5, MX: 15, TXT: 16, AAAA: 28,
+}
+
+function buildDnsWireQuery(hostname: string, qtype: string): string {
+  const type = DNS_QTYPES[qtype.toUpperCase()] ?? 1
+  const parts = hostname.replace(/\.$/, '').split('.')
+  const labels: number[] = []
+  for (const part of parts) {
+    labels.push(part.length)
+    for (let i = 0; i < part.length; i++) labels.push(part.charCodeAt(i))
+  }
+  labels.push(0)
+  const buf = new Uint8Array(12 + labels.length + 4)
+  buf[2] = 0x01; buf[3] = 0x00
+  buf[5] = 1
+  buf.set(labels, 12)
+  const off = 12 + labels.length
+  buf[off] = (type >> 8) & 0xff; buf[off + 1] = type & 0xff
+  buf[off + 3] = 1
+  return btoa(String.fromCharCode(...buf)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+interface WireResult { rcode: number; answers: string[] }
+
+function parseDnsWire(buf: ArrayBuffer): WireResult {
+  const v = new DataView(buf)
+  const flags = v.getUint16(2)
+  const rcode = flags & 0xf
+  const ancount = v.getUint16(6)
+  const answers: string[] = []
+
+  const readName = (start: number): [string, number] => {
+    const labels: string[] = []
+    let pos = start
+    let end = -1
+    while (pos < v.byteLength) {
+      const len = v.getUint8(pos)
+      if (len === 0) { if (end < 0) end = pos + 1; break }
+      if ((len & 0xc0) === 0xc0) {
+        if (end < 0) end = pos + 2
+        pos = ((len & 0x3f) << 8) | v.getUint8(pos + 1)
+        continue
+      }
+      pos++
+      let label = ''
+      for (let i = 0; i < len; i++) label += String.fromCharCode(v.getUint8(pos++))
+      labels.push(label)
+    }
+    return [labels.join('.'), end < 0 ? pos + 1 : end]
+  }
+
+  let off = 12
+  const [, afterQ] = readName(off)
+  off = afterQ + 4
+
+  for (let i = 0; i < ancount && off < v.byteLength; i++) {
+    const [, afterName] = readName(off)
+    off = afterName
+    const rrtype = v.getUint16(off); off += 2
+    off += 2
+    off += 4
+    const rdlen = v.getUint16(off); off += 2
+    const rdstart = off
+    if (rrtype === 1 && rdlen === 4) {
+      answers.push(`${v.getUint8(off)}.${v.getUint8(off+1)}.${v.getUint8(off+2)}.${v.getUint8(off+3)}`)
+    } else if (rrtype === 28 && rdlen === 16) {
+      const segs: string[] = []
+      for (let j = 0; j < 8; j++) segs.push(v.getUint16(off + j * 2).toString(16))
+      answers.push(segs.join(':'))
+    } else if (rrtype === 2 || rrtype === 5) {
+      const [name] = readName(off)
+      answers.push(name)
+    } else if (rrtype === 15) {
+      const prio = v.getUint16(off)
+      const [name] = readName(off + 2)
+      answers.push(`${prio} ${name}`)
+    } else if (rrtype === 16) {
+      let pos = off
+      const parts: string[] = []
+      while (pos < rdstart + rdlen) {
+        const slen = v.getUint8(pos++)
+        let s = ''
+        for (let j = 0; j < slen; j++) s += String.fromCharCode(v.getUint8(pos++))
+        parts.push(s)
+      }
+      answers.push(parts.join(''))
+    }
+    off = rdstart + rdlen
+  }
+
+  return { rcode, answers }
+}
+
+export async function checkDns(monitor: Monitor): Promise<CheckResult> {
+  const start = Date.now()
+  const resolverUrl = monitor.dnsResolverUrl!
+  const hostname = monitor.dnsHostname!
+  const recordType = monitor.dnsRecordType ?? 'A'
+
+  const sep = resolverUrl.includes('?') ? '&' : '?'
+  const queryUrl = `${resolverUrl}${sep}name=${encodeURIComponent(hostname)}&type=${encodeURIComponent(recordType)}`
+
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), (monitor.timeout || 30) * 1000)
+
+    const response = await fetch(queryUrl, {
+      headers: { Accept: 'application/dns-json' },
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    const responseTimeMs = Date.now() - start
+
+    if (!response.ok) {
+      return { status: 'down', responseTimeMs, message: `DoH HTTP ${response.status}` }
+    }
+
+    const contentType = response.headers.get('content-type') ?? ''
+
+    let rcode: number
+    let answerData: string[]
+
+    if (contentType.includes('dns-message') || contentType.includes('octet-stream')) {
+      const wire = await response.arrayBuffer()
+      const parsed = parseDnsWire(wire)
+      rcode = parsed.rcode
+      answerData = parsed.answers
+    } else if (contentType.includes('json')) {
+      let data: DoHResponse
+      try {
+        data = await response.json() as DoHResponse
+      } catch {
+        return { status: 'down', responseTimeMs, message: 'DoH resolver returned invalid JSON' }
+      }
+      rcode = data.Status
+      answerData = (data.Answer ?? []).map(a => a.data)
+    } else {
+      let raw: ArrayBuffer
+      try {
+        raw = await response.arrayBuffer()
+      } catch {
+        return { status: 'down', responseTimeMs, message: 'DoH resolver returned unreadable response' }
+      }
+      try {
+        const text = new TextDecoder().decode(raw)
+        const data = JSON.parse(text) as DoHResponse
+        rcode = data.Status
+        answerData = (data.Answer ?? []).map(a => a.data)
+      } catch {
+        const parsed = parseDnsWire(raw)
+        rcode = parsed.rcode
+        answerData = parsed.answers
+      }
+    }
+
+    if (rcode !== 0) {
+      const label = DNS_RCODES[rcode] ?? `RCODE ${rcode}`
+      return { status: 'down', responseTimeMs, message: `DNS ${label}` }
+    }
+
+    if (monitor.dnsExpectedIp) {
+      const found = answerData.some(d => d === monitor.dnsExpectedIp)
+      if (!found) {
+        const got = answerData.join(', ')
+        return { status: 'down', responseTimeMs, message: `Expected ${monitor.dnsExpectedIp}, got ${got || 'no answer'}` }
+      }
+    }
+
+    if (answerData.length > 0) {
+      return { status: 'up', responseTimeMs, message: `DNS OK · ${answerData.join(', ')}` }
+    }
+    return { status: 'up', responseTimeMs, message: 'DNS OK' }
+
+  } catch (err) {
+    const responseTimeMs = Date.now() - start
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { status: 'down', responseTimeMs, message: `Timeout after ${monitor.timeout ?? 30}s` }
+    }
+    return { status: 'down', responseTimeMs, message: String(err) }
+  }
+}
+
 function isSslError(message: string): boolean {
   const lower = message.toLowerCase()
   return lower.includes('ssl') || lower.includes('certificate') || lower.includes('tls') || lower.includes('cert') || lower.includes('handshake')

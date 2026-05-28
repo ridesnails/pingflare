@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.3.0] - 2026-05-28
+
+### Added
+- **DNS over HTTPS (DoH) monitor type**: New monitor type `dns` checks if a DNS resolver is responding and resolving correctly by querying any RFC 8484-compliant DoH endpoint (e.g. `https://freedns.controld.com/p0`, `https://1.1.1.1/dns-query`, `https://dns.google/resolve`)
+- **Configurable record type**: Supports any DNS record type (`A`, `AAAA`, `MX`, `CNAME`, `TXT`, `NS`, etc.) via the `dnsRecordType` field
+
+### Tests
+- Added 15 new Vitest tests for `checkDns()` covering NOERROR, NXDOMAIN, SERVFAIL, REFUSED, unknown RCODE, DoH HTTP errors, expected-IP validation, timeout, network errors, and query URL construction
+
+---
+
 ## [1.2.0] - 2026-05-28
 
 ### Performance

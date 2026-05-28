@@ -9,7 +9,7 @@
 
   const dispatch = createEventDispatcher<{ saved: Monitor; cancel: void }>()
 
-  let tab: 'http' | 'heartbeat' = (monitor.type ?? 'http') as 'http' | 'heartbeat'
+  let tab: 'http' | 'heartbeat' | 'dns' = (monitor.type ?? 'http') as 'http' | 'heartbeat' | 'dns'
 
   let name            = monitor.name ?? ''
   let tagsInput       = (() => { try { return JSON.parse(monitor.tags ?? '[]').join(', ') } catch { return '' } })()
@@ -35,6 +35,10 @@
   let surgeLimit          = monitor.surgeProtectionLimit ?? ''
   let sslCheckEnabled     = monitor.sslCheckEnabled ?? false
   let cacheBooster        = monitor.cacheBooster ?? false
+  let dnsHostname         = monitor.dnsHostname ?? ''
+  let dnsRecordType       = monitor.dnsRecordType ?? 'A'
+  let dnsResolverUrl      = monitor.dnsResolverUrl ?? ''
+  let dnsExpectedIp       = monitor.dnsExpectedIp ?? ''
 
   let selectedChannelIds: string[] = []
   let allChannels: NotificationChannel[] = []
@@ -86,6 +90,13 @@
         authToken:    authType === 'bearer' ? authToken : null,
         sslCheckEnabled,
         cacheBooster,
+      } : tab === 'dns' ? {
+        ...base,
+        timeout: Number(timeout),
+        dnsHostname,
+        dnsRecordType,
+        dnsResolverUrl,
+        dnsExpectedIp: dnsExpectedIp || null,
       } : {
         ...base,
         heartbeatInterval: Number(heartbeatInterval),
@@ -130,6 +141,12 @@
         {tab === 'heartbeat' ? 'bg-primary text-white' : 'btn-outline'}"
       on:click={() => { tab = 'heartbeat' }}
     >{$t('monitorForm.heartbeat')}</button>
+    <button
+      type="button"
+      class="px-4 py-1.5 text-sm font-medium transition-colors
+        {tab === 'dns' ? 'bg-primary text-white' : 'btn-outline'}"
+      on:click={() => { tab = 'dns' }}
+    >{$t('monitorForm.dns')}</button>
   </div>
   {/if}
 
@@ -260,6 +277,42 @@
         <label for="hb-surge" class="label">{$t('monitorForm.surgeProtection')}</label>
         <input id="hb-surge" class="input" type="number" bind:value={surgeLimit} min="1" placeholder={$t('monitorForm.disabled')} />
       </div>
+    </div>
+  </div>
+  {/if}
+
+  {#if tab === 'dns'}
+  <div class="space-y-4">
+    <h3 class="text-sm font-semibold text-[rgb(var(--text-muted))] uppercase tracking-wide">{$t('monitorForm.sectionDns')}</h3>
+    <div>
+      <label for="dns-resolver" class="label">{$t('monitorForm.dnsResolverUrl')}</label>
+      <input id="dns-resolver" class="input font-mono text-xs" bind:value={dnsResolverUrl} required
+        placeholder="https://freedns.controld.com/p0" />
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label for="dns-hostname" class="label">{$t('monitorForm.dnsHostname')}</label>
+        <input id="dns-hostname" class="input font-mono text-xs" bind:value={dnsHostname} required
+          placeholder="example.com" />
+      </div>
+      <div>
+        <label for="dns-record" class="label">{$t('monitorForm.dnsRecordType')}</label>
+        <select id="dns-record" class="input" bind:value={dnsRecordType}>
+          {#each ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS'] as rt}
+            <option value={rt}>{rt}</option>
+          {/each}
+        </select>
+      </div>
+    </div>
+    <div>
+      <label for="dns-expected" class="label">{$t('monitorForm.dnsExpectedIp')}</label>
+      <input id="dns-expected" class="input font-mono text-xs" bind:value={dnsExpectedIp}
+        placeholder={$t('monitorForm.dnsExpectedIpPlaceholder')} />
+      <p class="text-xs mt-1" style="color: rgb(var(--text-muted))">{$t('monitorForm.dnsExpectedIpHint')}</p>
+    </div>
+    <div>
+      <label for="dns-timeout" class="label">{$t('monitorForm.timeout')}</label>
+      <input id="dns-timeout" class="input" type="number" bind:value={timeout} min="1" max="60" />
     </div>
   </div>
   {/if}

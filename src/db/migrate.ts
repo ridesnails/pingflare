@@ -170,6 +170,10 @@ export async function ensureSchema(d1: D1Database): Promise<void> {
     `ALTER TABLE status_logs ADD COLUMN colo text`,
     `ALTER TABLE status_logs ADD COLUMN country_code text`,
     `ALTER TABLE status_logs ADD COLUMN origin_ip text`,
+    `ALTER TABLE monitors ADD COLUMN dns_hostname text`,
+    `ALTER TABLE monitors ADD COLUMN dns_record_type text DEFAULT 'A'`,
+    `ALTER TABLE monitors ADD COLUMN dns_resolver_url text`,
+    `ALTER TABLE monitors ADD COLUMN dns_expected_ip text`,
   ]
   for (const sql of alterStatements) {
     try { await d1.prepare(sql).run() } catch { /* column already exists */ }
