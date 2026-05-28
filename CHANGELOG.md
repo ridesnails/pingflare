@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.3.1] - 2026-05-28
+
+### Fixed
+- **Migration**: Fixing auto migration database on Cloudflare Worker + D1
+
 ## [1.3.0] - 2026-05-28
 
 ### Added
