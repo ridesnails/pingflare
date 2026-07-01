@@ -1,6 +1,7 @@
 import { writable, derived } from 'svelte/store'
 import en from '$locales/en.json'
 import ptBR from '$locales/pt-BR.json'
+import zhCN from '$locales/zh-CN.json'
 
 export type Locale = string
 type TranslationKey = keyof typeof en
@@ -8,6 +9,7 @@ type TranslationKey = keyof typeof en
 const translations: Record<string, Record<TranslationKey, string>> = {
   en: en as Record<TranslationKey, string>,
   'pt-BR': ptBR as Record<TranslationKey, string>,
+  'zh-CN': zhCN as Record<TranslationKey, string>,
 }
 
 const availableCodes = Object.keys(translations)
@@ -72,5 +74,6 @@ export const t = derived(locale, ($locale) => {
 
 export function nMonitors(loc: Locale, n: number): string {
   if (loc === 'pt-BR') return `${n} ${n === 1 ? 'monitor' : 'monitores'}`
+  if (loc === 'zh-CN') return `${n} 个监控`
   return `${n} monitor${n === 1 ? '' : 's'}`
 }
